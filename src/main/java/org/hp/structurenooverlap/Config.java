@@ -1,108 +1,178 @@
 package org.hp.structurenooverlap;
 
+import com.mojang.logging.LogUtils;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
-import net.minecraftforge.common.ForgeConfigSpec;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.config.ModConfigEvent;
-import net.minecraftforge.registries.ForgeRegistries;
+import org.slf4j.Logger;
 
-import java.util.Collections;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-@Mod.EventBusSubscriber(modid = Structurenooverlap.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
-public class Config {
-    private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
+public final class Config {
+    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Pattern QUOTED_VALUE = Pattern.compile("\\\"([^\\\"]*)\\\"");
+    private static final String CONFIG_FILE_NAME = Structurenooverlap.MODID + "-common.toml";
+    private static final String DEFAULT_CONFIG = """
+        # 是否启用结构重叠检测，防止结构生成时相互重叠
+        # Enables structure overlap checks to prevent structures from overlapping during generation
+        preventStructureOverlap = true
 
-    private static final ForgeConfigSpec.BooleanValue PREVENT_STRUCTURE_OVERLAP = BUILDER
-        .comment("是否启用结构重叠检测，防止结构生成时相互重叠")
-        .define("preventStructureOverlap", true);
+        # 每个结构最多记录多少个取消位置（用于 locate 命令跳过）
+        # Maximum number of cancelled positions recorded for each structure (used by locate handling)
+        maxCancelledRecords = 1000
 
-    private static final ForgeConfigSpec.IntValue MAX_CANCELLED_RECORDS = BUILDER
-        .comment("每个结构最多记录多少个取消位置（用于 locate 命令跳过）")
-        .defineInRange("maxCancelledRecords", 1000, 100, 10000);
+        # 结构 ID 白名单，格式为完整 ID，例如 minecraft:village_plains
+        # Structure ID whitelist using full IDs such as minecraft:village_plains
+        structureWhitelist = []
 
-    private static final ForgeConfigSpec.ConfigValue<List<? extends String>> STRUCTURE_WHITELIST = BUILDER
-        .comment("结构ID白名单，白名单中的结构永远不会被取消生成",
-                 "格式：完整结构ID，如 minecraft:village_plains")
-        .defineListAllowEmpty("structureWhitelist", List.of(), Config::validateStructureId);
+        # 模组命名空间白名单，格式为命名空间，例如 minecraft
+        # Namespace whitelist using namespace values such as minecraft
+        namespaceWhitelist = []
 
-    private static final ForgeConfigSpec.ConfigValue<List<? extends String>> NAMESPACE_WHITELIST = BUILDER
-        .comment("模组命名空间白名单，该命名空间下的所有结构永远不会被取消生成",
-                 "格式：命名空间，如 minecraft")
-        .defineListAllowEmpty("namespaceWhitelist", List.of(), Config::validateNamespace);
-
-    private static final ForgeConfigSpec.BooleanValue LOG_CANCELLED_STRUCTURES = BUILDER
-        .comment("是否在结构被取消生成时输出日志（显示结构ID和位置）")
-        .define("logCancelledStructures", true);
-
-    private static final ForgeConfigSpec.BooleanValue LOG_DIRT_BLOCK = BUILDER.comment("Whether to log the dirt block on common setup").define("logDirtBlock", true);
-
-    private static final ForgeConfigSpec.IntValue MAGIC_NUMBER = BUILDER.comment("A magic number").defineInRange("magicNumber", 42, 0, Integer.MAX_VALUE);
-
-    public static final ForgeConfigSpec.ConfigValue<String> MAGIC_NUMBER_INTRODUCTION = BUILDER.comment("What you want the introduction message to be for the magic number").define("magicNumberIntroduction", "The magic number is... ");
-
-    private static final ForgeConfigSpec.ConfigValue<List<? extends String>> ITEM_STRINGS = BUILDER.comment("A list of items to log on common setup.").defineListAllowEmpty("items", List.of("minecraft:iron_ingot"), Config::validateItemName);
-
-    static final ForgeConfigSpec SPEC = BUILDER.build();
+        # 是否在结构被取消生成时输出日志（显示结构 ID 和位置）
+        # Logs the structure ID and position when generation is cancelled
+        logCancelledStructures = true
+        """;
 
     public static boolean preventStructureOverlap;
     public static int maxCancelledRecords;
     public static List<String> structureWhitelist;
     public static List<String> namespaceWhitelist;
     public static boolean logCancelledStructures;
-    public static boolean logDirtBlock;
-    public static int magicNumber;
-    public static String magicNumberIntroduction;
-    public static Set<Item> items;
+
+    private Config() {
+    }
+
+    public static synchronized void load() {
+        Path configPath = FabricLoader.getInstance().getConfigDir().resolve(CONFIG_FILE_NAME);
+        try {
+            Files.createDirectories(configPath.getParent());
+            if (Files.notExists(configPath)) {
+                Files.writeString(configPath, DEFAULT_CONFIG, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+            }
+
+            Map<String, String> values = readValues(configPath);
+            preventStructureOverlap = readBoolean(values, "preventStructureOverlap", true);
+            maxCancelledRecords = readInteger(values, "maxCancelledRecords", 1000, 100, 10000);
+            structureWhitelist = readList(values, "structureWhitelist", Config::isValidStructureId);
+            namespaceWhitelist = readList(values, "namespaceWhitelist", Config::isValidNamespace);
+            logCancelledStructures = readBoolean(values, "logCancelledStructures", true);
+            LOGGER.info("Loaded StructureNoOverlap config from {}", configPath);
+        } catch (IOException exception) {
+            useDefaults();
+            LOGGER.error("Failed to load StructureNoOverlap config from {}", configPath, exception);
+        }
+    }
 
     public static boolean isWhitelisted(ResourceLocation structureId) {
-        String namespace = structureId.getNamespace();
-        if (namespaceWhitelist.contains(namespace)) {
+        return namespaceWhitelist.contains(structureId.getNamespace())
+            || structureWhitelist.contains(structureId.toString());
+    }
+
+    private static Map<String, String> readValues(Path configPath) throws IOException {
+        Map<String, String> values = new HashMap<>();
+        for (String line : Files.readAllLines(configPath, StandardCharsets.UTF_8)) {
+            String content = line.split("#", 2)[0].trim();
+            int separator = content.indexOf('=');
+            if (separator > 0) {
+                values.put(content.substring(0, separator).trim(), content.substring(separator + 1).trim());
+            }
+        }
+        return values;
+    }
+
+    private static boolean readBoolean(Map<String, String> values, String key, boolean defaultValue) {
+        String value = values.get(key);
+        if ("true".equalsIgnoreCase(value)) {
             return true;
         }
-
-        String fullId = structureId.toString();
-        if (structureWhitelist.contains(fullId)) {
-            return true;
-        }
-
-        return false;
-    }
-
-    private static boolean validateItemName(final Object obj) {
-        return obj instanceof final String itemName && ForgeRegistries.ITEMS.containsKey(ResourceLocation.tryParse(itemName));
-    }
-
-    private static boolean validateStructureId(final Object obj) {
-        if (!(obj instanceof String id)) {
+        if ("false".equalsIgnoreCase(value)) {
             return false;
         }
-        ResourceLocation rl = ResourceLocation.tryParse(id);
-        return rl != null && id.contains(":");
-    }
-
-    private static boolean validateNamespace(final Object obj) {
-        if (!(obj instanceof String ns)) {
-            return false;
+        if (value != null) {
+            LOGGER.warn("Invalid boolean value for config key {}: {}", key, value);
         }
-        return !ns.isEmpty() && !ns.contains(":") && ns.matches("[a-z0-9_.-]+");
+        return defaultValue;
     }
 
-    @SubscribeEvent
-    static void onLoad(final ModConfigEvent event) {
-        preventStructureOverlap = PREVENT_STRUCTURE_OVERLAP.get();
-        maxCancelledRecords = MAX_CANCELLED_RECORDS.get();
-        structureWhitelist = List.copyOf(STRUCTURE_WHITELIST.get());
-        namespaceWhitelist = List.copyOf(NAMESPACE_WHITELIST.get());
-        logCancelledStructures = LOG_CANCELLED_STRUCTURES.get();
-        logDirtBlock = LOG_DIRT_BLOCK.get();
-        magicNumber = MAGIC_NUMBER.get();
-        magicNumberIntroduction = MAGIC_NUMBER_INTRODUCTION.get();
+    private static int readInteger(Map<String, String> values, String key, int defaultValue, int minimum, int maximum) {
+        String value = values.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed >= minimum && parsed <= maximum) {
+                return parsed;
+            }
+        } catch (NumberFormatException ignored) {
+        }
+        LOGGER.warn("Invalid integer value for config key {}: {}", key, value);
+        return defaultValue;
+    }
 
-        items = ITEM_STRINGS.get().stream().map(itemName -> ForgeRegistries.ITEMS.getValue(ResourceLocation.tryParse(itemName))).collect(Collectors.toSet());
+    private static List<String> readList(Map<String, String> values, String key, Predicate<String> validator) {
+        String value = values.get(key);
+        if (value == null) {
+            return List.of();
+        }
+        if (!value.startsWith("[") || !value.endsWith("]")) {
+            LOGGER.warn("Invalid list value for config key {}: {}", key, value);
+            return List.of();
+        }
+
+        String content = value.substring(1, value.length() - 1).trim();
+        if (content.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> entries = new ArrayList<>();
+        Matcher matcher = QUOTED_VALUE.matcher(content);
+        int consumed = 0;
+        while (matcher.find()) {
+            if (!content.substring(consumed, matcher.start()).matches("\\s*,?\\s*")) {
+                LOGGER.warn("Invalid list value for config key {}: {}", key, value);
+                return List.of();
+            }
+            String entry = matcher.group(1);
+            if (!validator.test(entry)) {
+                LOGGER.warn("Invalid entry for config key {}: {}", key, entry);
+                return List.of();
+            }
+            entries.add(entry);
+            consumed = matcher.end();
+        }
+
+        if (entries.isEmpty() || !content.substring(consumed).matches("\\s*")) {
+            LOGGER.warn("Invalid list value for config key {}: {}", key, value);
+            return List.of();
+        }
+        return List.copyOf(entries);
+    }
+
+    private static boolean isValidStructureId(String id) {
+        return id.contains(":") && ResourceLocation.tryParse(id) != null;
+    }
+
+    private static boolean isValidNamespace(String namespace) {
+        return !namespace.isEmpty() && !namespace.contains(":") && namespace.matches("[a-z0-9_.-]+");
+    }
+
+    private static void useDefaults() {
+        preventStructureOverlap = true;
+        maxCancelledRecords = 1000;
+        structureWhitelist = List.of();
+        namespaceWhitelist = List.of();
+        logCancelledStructures = true;
     }
 }
