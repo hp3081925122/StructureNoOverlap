@@ -1,26 +1,35 @@
 package org.hp.structurenooverlap.mixin;
 
 import com.mojang.logging.LogUtils;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.chunk.ChunkGenerator;
-import net.minecraft.world.level.levelgen.structure.Structure;
-import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.structure.StructureStart;
+import net.minecraft.structure.StructureSet;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockBox;
+import net.minecraft.util.math.ChunkPos;
+import net.minecraft.util.registry.Registry;
+import net.minecraft.util.registry.RegistryEntry;
+import net.minecraft.world.gen.chunk.ChunkGenerator;
+import net.minecraft.world.gen.chunk.placement.StructurePlacement;
+import net.minecraft.world.gen.structure.Structure;
 import org.hp.structurenooverlap.api.StructureOverlapChecker;
 import org.hp.structurenooverlap.data.CancelledStructuresData;
 import org.hp.structurenooverlap.data.LocatedStructuresData;
 import org.hp.structurenooverlap.world.StructureSectionClaim;
 import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 @Mixin(ChunkGenerator.class)
-public class ChunkGeneratorMixin implements StructureOverlapChecker {
+public abstract class ChunkGeneratorMixin implements StructureOverlapChecker {
 
     @Unique
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -48,8 +57,8 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
     @Override
     public boolean tryClaimStructure(
         StructureStart start,
-        ResourceLocation structureId,
-        ServerLevel level
+        Identifier structureId,
+        ServerWorld level
     ) {
         if (!org.hp.structurenooverlap.Config.preventStructureOverlap) {
             return true;
@@ -60,12 +69,19 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
             return true;
         }
 
-        ChunkPos chunkPos = start.getChunkPos();
+        ChunkPos chunkPos = start.getPos();
 
         // 使用结构 ID 和起始区块组成稳定键，保证结构重新加载后仍能识别之前的取消状态。
         String cancellationKey = structureId + "|" + chunkPos.toLong();
 
-        boolean locatedTarget = LocatedStructuresData.get(level).isLocatedTarget(structureId, start, level);
+        List<StructurePlacement> placements = new ArrayList<>();
+        streamStructureSets().forEach(structureSetEntry -> {
+            StructureSet structureSet = structureSetEntry.value();
+            if (structureSet.structures().stream().anyMatch(entry -> entry.structure().value() == start.getStructure())) {
+                placements.add(structureSet.placement());
+            }
+        });
+        boolean locatedTarget = LocatedStructuresData.get(level).isLocatedTarget(structureId, start, placements);
 
         // 被定位的结构允许越过已有占用，但仍登记空闲区域，保护后续生成的结构。
         if (locatedTarget) {
@@ -130,17 +146,17 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
 
     @Unique
     private long[] structurenooverlap$calculateSections(StructureStart start) {
-        if (start.getPieces().isEmpty()) {
+        if (start.getChildren().isEmpty()) {
             return new long[0];
         }
 
-        var bb = start.getBoundingBox();
-        int minX = bb.minX() >> 4;
-        int minY = bb.minY() >> 4;
-        int minZ = bb.minZ() >> 4;
-        int maxX = bb.maxX() >> 4;
-        int maxY = bb.maxY() >> 4;
-        int maxZ = bb.maxZ() >> 4;
+        BlockBox bb = start.getBoundingBox();
+        int minX = bb.getMinX() >> 4;
+        int minY = bb.getMinY() >> 4;
+        int minZ = bb.getMinZ() >> 4;
+        int maxX = bb.getMaxX() >> 4;
+        int maxY = bb.getMaxY() >> 4;
+        int maxZ = bb.getMaxZ() >> 4;
 
         int count = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
         long[] sections = new long[count];
@@ -156,4 +172,7 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
 
         return sections;
     }
+
+    @Shadow
+    public abstract Stream<RegistryEntry<StructureSet>> streamStructureSets();
 }

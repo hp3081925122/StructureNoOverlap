@@ -1,8 +1,8 @@
 package org.hp.structurenooverlap.api;
 
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.structure.StructureStart;
+import net.minecraft.util.Identifier;
 import org.hp.structurenooverlap.world.StructureSectionClaim;
 
 import java.util.Map;
@@ -12,5 +12,5 @@ public interface StructureOverlapChecker {
 
     Map<Long, Boolean> getOverlapChecks();
 
-    boolean tryClaimStructure(StructureStart start, ResourceLocation structureId, ServerLevel level);
+    boolean tryClaimStructure(StructureStart start, Identifier structureId, ServerWorld level);
 }

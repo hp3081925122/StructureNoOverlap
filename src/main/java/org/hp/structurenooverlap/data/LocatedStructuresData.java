@@ -1,57 +1,46 @@
 package org.hp.structurenooverlap.data;
 
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
-import net.minecraft.world.level.levelgen.structure.Structure;
-import net.minecraft.world.level.levelgen.structure.StructureStart;
-import net.minecraft.world.level.levelgen.structure.placement.StructurePlacement;
-import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.NbtList;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.structure.StructureStart;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.PersistentState;
+import net.minecraft.world.gen.chunk.placement.StructurePlacement;
+import net.minecraft.world.gen.structure.Structure;
 
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class LocatedStructuresData extends SavedData {
+public class LocatedStructuresData extends PersistentState {
 
-    private final Map<ResourceLocation, Set<Long>> locatedPositions = new HashMap<>();
+    private final Map<Identifier, Set<Long>> locatedPositions = new HashMap<>();
 
     // 记录 locate 返回的实际结构位置，位置以结构的 locate 坐标保存而不是简单的区块坐标。
-    public void recordLocated(ResourceLocation structureId, BlockPos locatePos) {
+    public void recordLocated(Identifier structureId, BlockPos locatePos) {
         Set<Long> positions = locatedPositions.computeIfAbsent(structureId, key -> new LinkedHashSet<>());
         if (positions.add(locatePos.asLong())) {
-            setDirty();
+            markDirty();
         }
     }
 
     // 根据结构的实际生成区块和所有结构放置规则，判断它是否就是 locate 返回的目标。
-    public boolean isLocatedTarget(ResourceLocation structureId, StructureStart start, ServerLevel level) {
+    public boolean isLocatedTarget(Identifier structureId, StructureStart start, List<StructurePlacement> placements) {
         Set<Long> positions = locatedPositions.get(structureId);
         if (positions == null || positions.isEmpty()) {
             return false;
         }
 
-        Registry<Structure> registry = level.registryAccess().registryOrThrow(Registries.STRUCTURE);
-        Holder.Reference<Structure> holder = registry.getHolder(ResourceKey.create(Registries.STRUCTURE, structureId)).orElse(null);
-        if (holder == null) {
-            return false;
-        }
-
-        ChunkGeneratorStructureState state = level.getChunkSource().getGeneratorState();
-        ChunkPos startPos = start.getChunkPos();
-        for (StructurePlacement placement : state.getPlacementsForStructure(holder)) {
+        ChunkPos startPos = start.getPos();
+        for (StructurePlacement placement : placements) {
             if (positions.contains(placement.getLocatePos(startPos).asLong())) {
                 return true;
             }
@@ -61,10 +50,10 @@ public class LocatedStructuresData extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag) {
-        ListTag list = new ListTag();
-        for (Map.Entry<ResourceLocation, Set<Long>> entry : locatedPositions.entrySet()) {
-            CompoundTag structureTag = new CompoundTag();
+    public NbtCompound writeNbt(NbtCompound tag) {
+        NbtList list = new NbtList();
+        for (Map.Entry<Identifier, Set<Long>> entry : locatedPositions.entrySet()) {
+            NbtCompound structureTag = new NbtCompound();
             structureTag.putString("structure", entry.getKey().toString());
             structureTag.putLongArray("positions", entry.getValue().stream().mapToLong(Long::longValue).toArray());
             list.add(structureTag);
@@ -74,13 +63,13 @@ public class LocatedStructuresData extends SavedData {
     }
 
     // 从世界存档恢复已经定位过的结构目标。
-    public static LocatedStructuresData load(CompoundTag tag) {
+    public static LocatedStructuresData load(NbtCompound tag) {
         LocatedStructuresData data = new LocatedStructuresData();
-        ListTag list = tag.getList("located", Tag.TAG_COMPOUND);
+        NbtList list = tag.getList("located", NbtElement.COMPOUND_TYPE);
 
         for (int i = 0; i < list.size(); i++) {
-            CompoundTag structureTag = list.getCompound(i);
-            ResourceLocation structureId = ResourceLocation.tryParse(structureTag.getString("structure"));
+            NbtCompound structureTag = list.getCompound(i);
+            Identifier structureId = Identifier.tryParse(structureTag.getString("structure"));
             if (structureId == null) {
                 continue;
             }
@@ -95,8 +84,8 @@ public class LocatedStructuresData extends SavedData {
     }
 
     // 获取当前维度的定位目标数据，使目标在区块卸载后仍然有效。
-    public static LocatedStructuresData get(ServerLevel level) {
-        return level.getDataStorage().computeIfAbsent(
+    public static LocatedStructuresData get(ServerWorld level) {
+        return level.getPersistentStateManager().getOrCreate(
             LocatedStructuresData::load,
             LocatedStructuresData::new,
             "located_structures"

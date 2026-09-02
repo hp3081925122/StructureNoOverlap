@@ -1,14 +1,17 @@
 package org.hp.structurenooverlap.mixin;
 
 import com.mojang.logging.LogUtils;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.WorldGenRegion;
-import net.minecraft.world.level.chunk.ChunkGenerator;
-import net.minecraft.world.level.levelgen.structure.Structure;
-import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.structure.StructureStart;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockBox;
+import net.minecraft.util.math.ChunkPos;
+import net.minecraft.util.math.random.Random;
+import net.minecraft.util.registry.Registry;
+import net.minecraft.world.StructureWorldAccess;
+import net.minecraft.world.gen.StructureAccessor;
+import net.minecraft.world.gen.chunk.ChunkGenerator;
+import net.minecraft.world.gen.structure.Structure;
 import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -26,44 +29,32 @@ public class StructureStartMixin {
 
     @Shadow @Final private Structure structure;
 
-    @Inject(
-        method = "placeInChunk",
-        at = @At("HEAD"),
-        cancellable = true
-    )
-    private void beforePlaceInChunk(
-        net.minecraft.world.level.WorldGenLevel level,
-        net.minecraft.world.level.StructureManager structureManager,
+    @Inject(method = "place", at = @At("HEAD"), cancellable = true)
+    private void beforePlace(
+        StructureWorldAccess world,
+        StructureAccessor structureAccessor,
         ChunkGenerator chunkGenerator,
-        net.minecraft.util.RandomSource random,
-        net.minecraft.world.level.levelgen.structure.BoundingBox boundingBox,
-        net.minecraft.world.level.ChunkPos chunkPos,
+        Random random,
+        BlockBox boundingBox,
+        ChunkPos chunkPos,
         CallbackInfo ci
     ) {
-        // 结构生成阶段使用 WorldGenRegion，这里需要取回它对应的服务端世界。
-        ServerLevel serverLevel;
-        if (level instanceof ServerLevel directServerLevel) {
-            serverLevel = directServerLevel;
-        } else if (level instanceof WorldGenRegion worldGenRegion) {
-            serverLevel = worldGenRegion.getLevel();
-        } else {
-            return;
-        }
+        ServerWorld serverWorld = world.toServerWorld();
 
         if (chunkGenerator instanceof org.hp.structurenooverlap.api.StructureOverlapChecker checker) {
             StructureStart self = (StructureStart) (Object) this;
 
             // 从当前结构注册表直接取得 ID，避免依赖直接 Holder 是否带有注册键。
-            Registry<Structure> registry = serverLevel.registryAccess().registryOrThrow(Registries.STRUCTURE);
-            ResourceLocation structureId = registry.getKey(structure);
+            Registry<Structure> registry = serverWorld.getRegistryManager().get(Registry.STRUCTURE_KEY);
+            Identifier structureId = registry.getKey(structure).map(key -> key.getValue()).orElse(null);
             if (structureId == null) {
                 LOGGER.debug("Skipping structure overlap check because the structure has no registry id at {}", chunkPos);
                 return;
             }
 
-            LOGGER.debug("Structure overlap check reached for {} at {} via {}", structureId, chunkPos, level.getClass().getSimpleName());
+            LOGGER.debug("Structure overlap check reached for {} at {} via {}", structureId, chunkPos, world.getClass().getSimpleName());
 
-            if (!checker.tryClaimStructure(self, structureId, serverLevel)) {
+            if (!checker.tryClaimStructure(self, structureId, serverWorld)) {
                 ci.cancel();
             }
         }

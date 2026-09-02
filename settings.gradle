@@ -1,15 +1,9 @@
 pluginManagement {
+    // 从 Fabric 官方 Maven 与 Gradle 插件门户解析 Loom。
     repositories {
         gradlePluginPortal()
-        maven {
-            name = 'MinecraftForge'
-            url = 'https://maven.minecraftforge.net/'
-        }
+        maven { url = 'https://maven.fabricmc.net/' }
     }
 }
 
-plugins {
-    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.7.0'
-}
-
-rootProject.name = 'structurenooverlap'
+rootProject.name = 'structurenooverlap-1.19.2-fabric'
