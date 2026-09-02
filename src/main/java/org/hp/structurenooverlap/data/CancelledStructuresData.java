@@ -1,118 +1,122 @@
 package org.hp.structurenooverlap.data;
 
-import com.mojang.logging.LogUtils;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.saveddata.SavedData;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtList;
+import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.PersistentState;
+import org.hp.structurenooverlap.Config;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
-public class CancelledStructuresData extends SavedData {
+public final class CancelledStructuresData extends PersistentState {
+    private static final Logger LOGGER = LoggerFactory.getLogger("structurenooverlap");
+    private static final String STATE_ID = "cancelled_structures";
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    public static final PersistentState.Type<CancelledStructuresData> TYPE = new PersistentState.Type<>(
+        CancelledStructuresData::new,
+        CancelledStructuresData::load,
+        null
+    );
 
-    private final Map<ResourceLocation, Set<ChunkPos>> cancelledPositions = new HashMap<>();
+    private final Map<Identifier, Set<ChunkPos>> cancelledPositions = new HashMap<>();
 
-    public CancelledStructuresData() {
-    }
+    public synchronized void recordCancelled(Identifier structureId, ChunkPos pos) {
+        Set<ChunkPos> positions = cancelledPositions.computeIfAbsent(
+            structureId,
+            key -> new LinkedHashSet<>()
+        );
 
-    // 世界生成由多个线程并行执行，串行保护取消位置集合，确保相同位置只被记录一次。
-    public synchronized void recordCancelled(ResourceLocation structureId, ChunkPos pos) {
-        Set<ChunkPos> positions = cancelledPositions.computeIfAbsent(structureId, k -> new LinkedHashSet<>());
-
-        // 相同结构位置已经记录过时不再重复标记存档或输出调试日志。
         if (!positions.add(pos)) {
             return;
         }
 
-        int maxEntries = org.hp.structurenooverlap.Config.maxCancelledRecords;
+        int maxEntries = Config.maxCancelledRecords;
         if (positions.size() > maxEntries) {
-            Iterator<ChunkPos> iter = positions.iterator();
-            if (iter.hasNext()) {
-                iter.next();
-                iter.remove();
+            Iterator<ChunkPos> iterator = positions.iterator();
+            if (iterator.hasNext()) {
+                iterator.next();
+                iterator.remove();
             }
         }
 
-        setDirty();
-
+        markDirty();
         LOGGER.debug("Recorded cancelled structure {} at {}", structureId, pos);
     }
 
-    public boolean isCancelled(ResourceLocation structureId, ChunkPos pos) {
+    public synchronized boolean isCancelled(Identifier structureId, ChunkPos pos) {
         Set<ChunkPos> positions = cancelledPositions.get(structureId);
         return positions != null && positions.contains(pos);
     }
 
-    public int getCancelledCount(ResourceLocation structureId) {
+    public synchronized int getCancelledCount(Identifier structureId) {
         Set<ChunkPos> positions = cancelledPositions.get(structureId);
-        return positions != null ? positions.size() : 0;
+        return positions == null ? 0 : positions.size();
     }
 
-    public void cleanup(ServerLevel level) {
-        Vec3 spawnPos = Vec3.atCenterOf(level.getSharedSpawnPos());
+    public synchronized void cleanup(ServerWorld world) {
+        ChunkPos spawnChunk = new ChunkPos(world.getSpawnPos());
         double maxDistance = 10000.0;
+        double maxDistanceSquared = maxDistance * maxDistance;
 
         for (Set<ChunkPos> positions : cancelledPositions.values()) {
             positions.removeIf(pos -> {
-                double dist = Math.sqrt(pos.x * pos.x + pos.z * pos.z) * 16;
-                return dist > maxDistance;
+                double dx = (pos.x - spawnChunk.x) * 16.0;
+                double dz = (pos.z - spawnChunk.z) * 16.0;
+                return dx * dx + dz * dz > maxDistanceSquared;
             });
         }
-        setDirty();
+        markDirty();
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag) {
-        ListTag list = new ListTag();
-        for (Map.Entry<ResourceLocation, Set<ChunkPos>> entry : cancelledPositions.entrySet()) {
-            CompoundTag structureTag = new CompoundTag();
-            structureTag.putString("structure", entry.getKey().toString());
-
-            long[] positions = entry.getValue().stream()
-                .mapToLong(ChunkPos::toLong)
-                .toArray();
-            structureTag.putLongArray("positions", positions);
-
-            list.add(structureTag);
+    public synchronized NbtCompound writeNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup registryLookup) {
+        NbtList list = new NbtList();
+        for (Map.Entry<Identifier, Set<ChunkPos>> entry : cancelledPositions.entrySet()) {
+            NbtCompound structureNbt = new NbtCompound();
+            structureNbt.putString("structure", entry.getKey().toString());
+            structureNbt.putLongArray(
+                "positions",
+                entry.getValue().stream().mapToLong(ChunkPos::toLong).toArray()
+            );
+            list.add(structureNbt);
         }
-        tag.put("cancelled", list);
-        return tag;
+        nbt.put("cancelled", list);
+        return nbt;
     }
 
-    public static CancelledStructuresData load(CompoundTag tag) {
+    private static CancelledStructuresData load(NbtCompound nbt, RegistryWrapper.WrapperLookup registryLookup) {
         CancelledStructuresData data = new CancelledStructuresData();
-        ListTag list = tag.getList("cancelled", Tag.TAG_COMPOUND);
+        NbtList list = nbt.getList("cancelled", 10);
 
         for (int i = 0; i < list.size(); i++) {
-            CompoundTag structureTag = list.getCompound(i);
-            ResourceLocation structureId = ResourceLocation.tryParse(structureTag.getString("structure"));
-            if (structureId == null) continue;
-            long[] positions = structureTag.getLongArray("positions");
+            NbtCompound structureNbt = list.getCompound(i);
+            Identifier structureId = Identifier.tryParse(structureNbt.getString("structure"));
+            if (structureId == null) {
+                continue;
+            }
 
-            Set<ChunkPos> posSet = Arrays.stream(positions)
+            Set<ChunkPos> positions = Arrays.stream(structureNbt.getLongArray("positions"))
                 .mapToObj(ChunkPos::new)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-
-            data.cancelledPositions.put(structureId, posSet);
+            data.cancelledPositions.put(structureId, positions);
         }
 
         LOGGER.info("Loaded {} cancelled structure records", data.cancelledPositions.size());
         return data;
     }
 
-    public static CancelledStructuresData get(ServerLevel level) {
-        return level.getDataStorage().computeIfAbsent(
-            CancelledStructuresData::load,
-            CancelledStructuresData::new,
-            "cancelled_structures"
-        );
+    public static CancelledStructuresData get(ServerWorld world) {
+        return world.getPersistentStateManager().getOrCreate(TYPE, STATE_ID);
     }
 }

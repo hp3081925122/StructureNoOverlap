@@ -1,108 +1,153 @@
 package org.hp.structurenooverlap;
 
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
-import net.minecraftforge.common.ForgeConfigSpec;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.config.ModConfigEvent;
-import net.minecraftforge.registries.ForgeRegistries;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.mojang.logging.LogUtils;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.util.Identifier;
+import org.slf4j.Logger;
 
-import java.util.Collections;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
-@Mod.EventBusSubscriber(modid = Structurenooverlap.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
-public class Config {
-    private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
+public final class Config {
+    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Path CONFIG_PATH = FabricLoader.getInstance()
+        .getConfigDir()
+        .resolve("structurenooverlap.json");
 
-    private static final ForgeConfigSpec.BooleanValue PREVENT_STRUCTURE_OVERLAP = BUILDER
-        .comment("是否启用结构重叠检测，防止结构生成时相互重叠")
-        .define("preventStructureOverlap", true);
+    public static boolean preventStructureOverlap = true;
+    public static int maxCancelledRecords = 1000;
+    public static List<String> structureWhitelist = List.of();
+    public static List<String> namespaceWhitelist = List.of();
+    public static boolean logCancelledStructures = true;
 
-    private static final ForgeConfigSpec.IntValue MAX_CANCELLED_RECORDS = BUILDER
-        .comment("每个结构最多记录多少个取消位置（用于 locate 命令跳过）")
-        .defineInRange("maxCancelledRecords", 1000, 100, 10000);
-
-    private static final ForgeConfigSpec.ConfigValue<List<? extends String>> STRUCTURE_WHITELIST = BUILDER
-        .comment("结构ID白名单，白名单中的结构永远不会被取消生成",
-                 "格式：完整结构ID，如 minecraft:village_plains")
-        .defineListAllowEmpty("structureWhitelist", List.of(), Config::validateStructureId);
-
-    private static final ForgeConfigSpec.ConfigValue<List<? extends String>> NAMESPACE_WHITELIST = BUILDER
-        .comment("模组命名空间白名单，该命名空间下的所有结构永远不会被取消生成",
-                 "格式：命名空间，如 minecraft")
-        .defineListAllowEmpty("namespaceWhitelist", List.of(), Config::validateNamespace);
-
-    private static final ForgeConfigSpec.BooleanValue LOG_CANCELLED_STRUCTURES = BUILDER
-        .comment("是否在结构被取消生成时输出日志（显示结构ID和位置）")
-        .define("logCancelledStructures", true);
-
-    private static final ForgeConfigSpec.BooleanValue LOG_DIRT_BLOCK = BUILDER.comment("Whether to log the dirt block on common setup").define("logDirtBlock", true);
-
-    private static final ForgeConfigSpec.IntValue MAGIC_NUMBER = BUILDER.comment("A magic number").defineInRange("magicNumber", 42, 0, Integer.MAX_VALUE);
-
-    public static final ForgeConfigSpec.ConfigValue<String> MAGIC_NUMBER_INTRODUCTION = BUILDER.comment("What you want the introduction message to be for the magic number").define("magicNumberIntroduction", "The magic number is... ");
-
-    private static final ForgeConfigSpec.ConfigValue<List<? extends String>> ITEM_STRINGS = BUILDER.comment("A list of items to log on common setup.").defineListAllowEmpty("items", List.of("minecraft:iron_ingot"), Config::validateItemName);
-
-    static final ForgeConfigSpec SPEC = BUILDER.build();
-
-    public static boolean preventStructureOverlap;
-    public static int maxCancelledRecords;
-    public static List<String> structureWhitelist;
-    public static List<String> namespaceWhitelist;
-    public static boolean logCancelledStructures;
-    public static boolean logDirtBlock;
-    public static int magicNumber;
-    public static String magicNumberIntroduction;
-    public static Set<Item> items;
-
-    public static boolean isWhitelisted(ResourceLocation structureId) {
-        String namespace = structureId.getNamespace();
-        if (namespaceWhitelist.contains(namespace)) {
-            return true;
-        }
-
-        String fullId = structureId.toString();
-        if (structureWhitelist.contains(fullId)) {
-            return true;
-        }
-
-        return false;
+    private Config() {
     }
 
-    private static boolean validateItemName(final Object obj) {
-        return obj instanceof final String itemName && ForgeRegistries.ITEMS.containsKey(ResourceLocation.tryParse(itemName));
+    public static boolean isWhitelisted(Identifier structureId) {
+        return namespaceWhitelist.contains(structureId.getNamespace())
+            || structureWhitelist.contains(structureId.toString());
     }
 
-    private static boolean validateStructureId(final Object obj) {
-        if (!(obj instanceof String id)) {
-            return false;
+    public static void load() {
+        if (Files.notExists(CONFIG_PATH)) {
+            save();
+            return;
         }
-        ResourceLocation rl = ResourceLocation.tryParse(id);
-        return rl != null && id.contains(":");
-    }
 
-    private static boolean validateNamespace(final Object obj) {
-        if (!(obj instanceof String ns)) {
-            return false;
+        try (Reader reader = Files.newBufferedReader(CONFIG_PATH, StandardCharsets.UTF_8)) {
+            JsonElement root = JsonParser.parseReader(reader);
+            if (!root.isJsonObject()) {
+                LOGGER.warn("Ignoring invalid StructureNoOverlap config because the root is not an object");
+                save();
+                return;
+            }
+
+            JsonObject config = root.getAsJsonObject();
+            preventStructureOverlap = readBoolean(config, "preventStructureOverlap", true);
+            maxCancelledRecords = readInteger(config, "maxCancelledRecords", 1000, 100, 10000);
+            structureWhitelist = readStructureWhitelist(config);
+            namespaceWhitelist = readNamespaceWhitelist(config);
+            logCancelledStructures = readBoolean(config, "logCancelledStructures", true);
+            LOGGER.info("Loaded StructureNoOverlap config from {}", CONFIG_PATH);
+        } catch (IOException | RuntimeException exception) {
+            LOGGER.error("Failed to load StructureNoOverlap config", exception);
+            save();
         }
-        return !ns.isEmpty() && !ns.contains(":") && ns.matches("[a-z0-9_.-]+");
     }
 
-    @SubscribeEvent
-    static void onLoad(final ModConfigEvent event) {
-        preventStructureOverlap = PREVENT_STRUCTURE_OVERLAP.get();
-        maxCancelledRecords = MAX_CANCELLED_RECORDS.get();
-        structureWhitelist = List.copyOf(STRUCTURE_WHITELIST.get());
-        namespaceWhitelist = List.copyOf(NAMESPACE_WHITELIST.get());
-        logCancelledStructures = LOG_CANCELLED_STRUCTURES.get();
-        logDirtBlock = LOG_DIRT_BLOCK.get();
-        magicNumber = MAGIC_NUMBER.get();
-        magicNumberIntroduction = MAGIC_NUMBER_INTRODUCTION.get();
+    public static void save() {
+        try {
+            Files.createDirectories(CONFIG_PATH.getParent());
+            JsonObject config = new JsonObject();
+            config.addProperty("preventStructureOverlap", preventStructureOverlap);
+            config.addProperty("maxCancelledRecords", maxCancelledRecords);
+            config.add("structureWhitelist", toJsonArray(structureWhitelist));
+            config.add("namespaceWhitelist", toJsonArray(namespaceWhitelist));
+            config.addProperty("logCancelledStructures", logCancelledStructures);
+            try (Writer writer = Files.newBufferedWriter(CONFIG_PATH, StandardCharsets.UTF_8)) {
+                GSON.toJson(config, writer);
+            }
+        } catch (IOException exception) {
+            LOGGER.error("Failed to save StructureNoOverlap config", exception);
+        }
+    }
 
-        items = ITEM_STRINGS.get().stream().map(itemName -> ForgeRegistries.ITEMS.getValue(ResourceLocation.tryParse(itemName))).collect(Collectors.toSet());
+    private static boolean readBoolean(JsonObject config, String key, boolean defaultValue) {
+        JsonElement value = config.get(key);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean()
+            ? value.getAsBoolean()
+            : defaultValue;
+    }
+
+    private static int readInteger(
+        JsonObject config,
+        String key,
+        int defaultValue,
+        int minimum,
+        int maximum
+    ) {
+        try {
+            JsonElement value = config.get(key);
+            if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
+                return defaultValue;
+            }
+            return Math.max(minimum, Math.min(maximum, value.getAsInt()));
+        } catch (RuntimeException exception) {
+            return defaultValue;
+        }
+    }
+
+    private static List<String> readStructureWhitelist(JsonObject config) {
+        return readStringList(config, "structureWhitelist").stream()
+            .filter(Config::validateStructureId)
+            .toList();
+    }
+
+    private static List<String> readNamespaceWhitelist(JsonObject config) {
+        return readStringList(config, "namespaceWhitelist").stream()
+            .filter(Config::validateNamespace)
+            .toList();
+    }
+
+    private static List<String> readStringList(JsonObject config, String key) {
+        JsonElement value = config.get(key);
+        if (value == null || !value.isJsonArray()) {
+            return List.of();
+        }
+
+        List<String> values = new ArrayList<>();
+        for (JsonElement element : value.getAsJsonArray()) {
+            if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+                values.add(element.getAsString());
+            }
+        }
+        return List.copyOf(values);
+    }
+
+    private static JsonArray toJsonArray(List<String> values) {
+        JsonArray array = new JsonArray();
+        values.forEach(array::add);
+        return array;
+    }
+
+    private static boolean validateStructureId(String id) {
+        return id.contains(":") && Identifier.tryParse(id) != null;
+    }
+
+    private static boolean validateNamespace(String namespace) {
+        return !namespace.isEmpty() && namespace.matches("[a-z0-9_.-]+");
     }
 }

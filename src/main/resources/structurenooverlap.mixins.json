@@ -2,19 +2,13 @@
   "required": true,
   "minVersion": "0.8",
   "package": "org.hp.structurenooverlap.mixin",
-  "compatibilityLevel": "JAVA_8",
-  "refmap": "structurenooverlap.refmap.json",
+  "compatibilityLevel": "JAVA_21",
   "mixins": [
     "ChunkGeneratorMixin",
     "StructureStartMixin",
     "LocateCommandMixin"
   ],
-  "client": [
-  ],
   "injectors": {
     "defaultRequire": 1
-  },
-  "overwrites": {
-    "requireAnnotations": true
   }
 }
