@@ -1,20 +1,25 @@
 package org.hp.structurenooverlap.mixin;
 
 import com.mojang.logging.LogUtils;
+import net.minecraft.core.Holder;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.level.levelgen.structure.placement.StructurePlacement;
 import org.hp.structurenooverlap.api.StructureOverlapChecker;
 import org.hp.structurenooverlap.data.CancelledStructuresData;
 import org.hp.structurenooverlap.data.LocatedStructuresData;
 import org.hp.structurenooverlap.world.StructureSectionClaim;
 import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,6 +40,11 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
     @Unique
     private final Set<String> structurenooverlap$cancelledStructureStarts = ConcurrentHashMap.newKeySet();
 
+    @Shadow
+    private List<StructurePlacement> getPlacementsForStructure(Holder<Structure> structure, RandomState randomState) {
+        throw new AssertionError();
+    }
+
     @Override
     public Map<Long, StructureSectionClaim> getStructureSectionClaims() {
         return structurenooverlap$sectionClaims;
@@ -43,6 +53,11 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
     @Override
     public Map<Long, Boolean> getOverlapChecks() {
         return structurenooverlap$overlapChecks;
+    }
+
+    @Override
+    public List<StructurePlacement> getStructurePlacements(Holder<Structure> structure, RandomState randomState) {
+        return getPlacementsForStructure(structure, randomState);
     }
 
     @Override

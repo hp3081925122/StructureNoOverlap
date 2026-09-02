@@ -3,7 +3,6 @@ package org.hp.structurenooverlap.data;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -11,11 +10,11 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.minecraft.world.level.levelgen.structure.placement.StructurePlacement;
 import net.minecraft.world.level.saveddata.SavedData;
+import org.hp.structurenooverlap.api.StructureOverlapChecker;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -43,15 +42,18 @@ public class LocatedStructuresData extends SavedData {
             return false;
         }
 
-        Registry<Structure> registry = level.registryAccess().registryOrThrow(Registries.STRUCTURE);
-        Holder.Reference<Structure> holder = registry.getHolder(ResourceKey.create(Registries.STRUCTURE, structureId)).orElse(null);
+        Registry<Structure> registry = level.registryAccess().registryOrThrow(Registry.STRUCTURE_REGISTRY);
+        Holder<Structure> holder = registry.getHolder(ResourceKey.create(Registry.STRUCTURE_REGISTRY, structureId)).orElse(null);
         if (holder == null) {
             return false;
         }
 
-        ChunkGeneratorStructureState state = level.getChunkSource().getGeneratorState();
+        if (!(level.getChunkSource().getGenerator() instanceof StructureOverlapChecker checker)) {
+            return false;
+        }
+
         ChunkPos startPos = start.getChunkPos();
-        for (StructurePlacement placement : state.getPlacementsForStructure(holder)) {
+        for (StructurePlacement placement : checker.getStructurePlacements(holder, level.getChunkSource().randomState())) {
             if (positions.contains(placement.getLocatePos(startPos).asLong())) {
                 return true;
             }

@@ -3,11 +3,10 @@ package org.hp.structurenooverlap.mixin;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.logging.LogUtils;
 import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.arguments.ResourceOrTagKeyArgument;
+import net.minecraft.commands.arguments.ResourceOrTagLocationArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.commands.LocateCommand;
 import net.minecraft.world.level.levelgen.structure.Structure;
@@ -19,8 +18,6 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.time.Duration;
-
 @Mixin(LocateCommand.class)
 public class LocateCommandMixin {
 
@@ -29,17 +26,16 @@ public class LocateCommandMixin {
 
     // 在 locate 向执行者发送结果前，保存实际返回的结构和坐标。
     @Inject(
-        method = "showLocateResult(Lnet/minecraft/commands/CommandSourceStack;Lnet/minecraft/commands/arguments/ResourceOrTagKeyArgument$Result;Lnet/minecraft/core/BlockPos;Lcom/mojang/datafixers/util/Pair;Ljava/lang/String;ZLjava/time/Duration;)I",
+        method = "showLocateResult(Lnet/minecraft/commands/CommandSourceStack;Lnet/minecraft/commands/arguments/ResourceOrTagLocationArgument$Result;Lnet/minecraft/core/BlockPos;Lcom/mojang/datafixers/util/Pair;Ljava/lang/String;Z)I",
         at = @At("HEAD")
     )
     private static void recordLocatedStructure(
         CommandSourceStack source,
-        ResourceOrTagKeyArgument.Result<?> requestedStructure,
+        ResourceOrTagLocationArgument.Result<?> requestedStructure,
         BlockPos origin,
         Pair<BlockPos, ? extends Holder<?>> result,
         String messageKey,
         boolean includeY,
-        Duration elapsed,
         CallbackInfoReturnable<Integer> cir
     ) {
         Holder<?> holder = result.getSecond();
@@ -47,7 +43,7 @@ public class LocateCommandMixin {
             return;
         }
 
-        Registry<Structure> registry = source.getLevel().registryAccess().registryOrThrow(Registries.STRUCTURE);
+        Registry<Structure> registry = source.getLevel().registryAccess().registryOrThrow(Registry.STRUCTURE_REGISTRY);
         ResourceLocation structureId = registry.getKey(structure);
         if (structureId == null) {
             return;
