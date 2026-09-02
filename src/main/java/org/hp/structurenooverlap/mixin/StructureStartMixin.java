@@ -18,18 +18,19 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(StructureStart.class)
+@Mixin(value = StructureStart.class, remap = false)
 public class StructureStartMixin {
 
     @Unique
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    @Shadow @Final private Structure structure;
+    @Shadow(remap = false) @Final private Structure structure;
 
     @Inject(
         method = "placeInChunk",
         at = @At("HEAD"),
-        cancellable = true
+        cancellable = true,
+        remap = false
     )
     private void beforePlaceInChunk(
         net.minecraft.world.level.WorldGenLevel level,

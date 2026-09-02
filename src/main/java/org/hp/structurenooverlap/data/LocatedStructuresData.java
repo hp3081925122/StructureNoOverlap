@@ -2,6 +2,7 @@ package org.hp.structurenooverlap.data;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
@@ -61,7 +62,7 @@ public class LocatedStructuresData extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag) {
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
         ListTag list = new ListTag();
         for (Map.Entry<ResourceLocation, Set<Long>> entry : locatedPositions.entrySet()) {
             CompoundTag structureTag = new CompoundTag();
@@ -74,7 +75,7 @@ public class LocatedStructuresData extends SavedData {
     }
 
     // 从世界存档恢复已经定位过的结构目标。
-    public static LocatedStructuresData load(CompoundTag tag) {
+    public static LocatedStructuresData load(CompoundTag tag, HolderLookup.Provider registries) {
         LocatedStructuresData data = new LocatedStructuresData();
         ListTag list = tag.getList("located", Tag.TAG_COMPOUND);
 
@@ -97,8 +98,7 @@ public class LocatedStructuresData extends SavedData {
     // 获取当前维度的定位目标数据，使目标在区块卸载后仍然有效。
     public static LocatedStructuresData get(ServerLevel level) {
         return level.getDataStorage().computeIfAbsent(
-            LocatedStructuresData::load,
-            LocatedStructuresData::new,
+            new SavedData.Factory<>(LocatedStructuresData::new, LocatedStructuresData::load),
             "located_structures"
         );
     }

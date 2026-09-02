@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-@Mixin(ChunkGenerator.class)
+@Mixin(value = ChunkGenerator.class, remap = false)
 public class ChunkGeneratorMixin implements StructureOverlapChecker {
 
     @Unique

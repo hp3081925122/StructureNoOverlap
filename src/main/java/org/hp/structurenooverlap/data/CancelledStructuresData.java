@@ -1,6 +1,7 @@
 package org.hp.structurenooverlap.data;
 
 import com.mojang.logging.LogUtils;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -70,7 +71,7 @@ public class CancelledStructuresData extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag) {
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
         ListTag list = new ListTag();
         for (Map.Entry<ResourceLocation, Set<ChunkPos>> entry : cancelledPositions.entrySet()) {
             CompoundTag structureTag = new CompoundTag();
@@ -87,7 +88,7 @@ public class CancelledStructuresData extends SavedData {
         return tag;
     }
 
-    public static CancelledStructuresData load(CompoundTag tag) {
+    public static CancelledStructuresData load(CompoundTag tag, HolderLookup.Provider registries) {
         CancelledStructuresData data = new CancelledStructuresData();
         ListTag list = tag.getList("cancelled", Tag.TAG_COMPOUND);
 
@@ -110,8 +111,7 @@ public class CancelledStructuresData extends SavedData {
 
     public static CancelledStructuresData get(ServerLevel level) {
         return level.getDataStorage().computeIfAbsent(
-            CancelledStructuresData::load,
-            CancelledStructuresData::new,
+            new SavedData.Factory<>(CancelledStructuresData::new, CancelledStructuresData::load),
             "cancelled_structures"
         );
     }

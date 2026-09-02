@@ -21,7 +21,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.time.Duration;
 
-@Mixin(LocateCommand.class)
+@Mixin(value = LocateCommand.class, remap = false)
 public class LocateCommandMixin {
 
     @Unique
@@ -30,7 +30,8 @@ public class LocateCommandMixin {
     // 在 locate 向执行者发送结果前，保存实际返回的结构和坐标。
     @Inject(
         method = "showLocateResult(Lnet/minecraft/commands/CommandSourceStack;Lnet/minecraft/commands/arguments/ResourceOrTagKeyArgument$Result;Lnet/minecraft/core/BlockPos;Lcom/mojang/datafixers/util/Pair;Ljava/lang/String;ZLjava/time/Duration;)I",
-        at = @At("HEAD")
+        at = @At("HEAD"),
+        remap = false
     )
     private static void recordLocatedStructure(
         CommandSourceStack source,
