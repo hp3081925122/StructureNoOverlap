@@ -8,7 +8,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.commands.LocateCommand;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import org.hp.structurenooverlap.data.LocatedStructuresData;
@@ -47,8 +47,8 @@ public class LocateCommandMixin {
             return;
         }
 
-        Registry<Structure> registry = source.getLevel().registryAccess().registryOrThrow(Registries.STRUCTURE);
-        ResourceLocation structureId = registry.getKey(structure);
+        Registry<Structure> registry = source.getLevel().registryAccess().lookupOrThrow(Registries.STRUCTURE);
+        Identifier structureId = registry.getKey(structure);
         if (structureId == null) {
             return;
         }

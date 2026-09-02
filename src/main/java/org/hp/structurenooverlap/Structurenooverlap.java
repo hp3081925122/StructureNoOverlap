@@ -6,11 +6,11 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 
 @Mod(Structurenooverlap.MODID)
-public class Structurenooverlap {
+public final class Structurenooverlap {
     public static final String MODID = "structurenooverlap";
 
     public Structurenooverlap(IEventBus modEventBus, ModContainer modContainer) {
-        modEventBus.addListener(Config::onLoad);
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+        modEventBus.addListener(Config::onLoad);
     }
 }

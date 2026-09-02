@@ -1,34 +1,38 @@
 package org.hp.structurenooverlap;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 import java.util.List;
 
+@EventBusSubscriber(modid = Structurenooverlap.MODID)
 public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
     private static final ModConfigSpec.BooleanValue PREVENT_STRUCTURE_OVERLAP = BUILDER
-        .comment("是否启用结构重叠检测，防止结构生成时相互重叠 / Whether to prevent structures from overlapping during generation")
+        .comment("是否启用结构重叠检测，防止结构生成时相互重叠")
         .define("preventStructureOverlap", true);
 
     private static final ModConfigSpec.IntValue MAX_CANCELLED_RECORDS = BUILDER
-        .comment("每个结构最多记录多少个取消位置 / Maximum cancelled positions recorded per structure")
+        .comment("每个结构最多记录多少个取消位置（用于 locate 命令跳过）")
         .defineInRange("maxCancelledRecords", 1000, 100, 10000);
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> STRUCTURE_WHITELIST = BUILDER
-        .comment("结构 ID 白名单，白名单中的结构永远不会被取消生成 / Structure ID whitelist; listed structures are never cancelled",
-                 "格式：完整结构 ID，如 minecraft:village_plains / Format: full structure ID, such as minecraft:village_plains")
-        .defineListAllowEmpty("structureWhitelist", List.of(), Config::validateStructureId);
+        .comment("结构ID白名单，白名单中的结构永远不会被取消生成",
+                 "格式：完整结构ID，如 minecraft:village_plains")
+        .defineListAllowEmpty("structureWhitelist", List.of(), () -> "", Config::validateStructureId);
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> NAMESPACE_WHITELIST = BUILDER
-        .comment("模组命名空间白名单，该命名空间下的所有结构永远不会被取消生成 / Namespace whitelist; all structures in listed namespaces are never cancelled",
-                 "格式：命名空间，如 minecraft / Format: namespace, such as minecraft")
-        .defineListAllowEmpty("namespaceWhitelist", List.of(), Config::validateNamespace);
+        .comment("模组命名空间白名单，该命名空间下的所有结构永远不会被取消生成",
+                 "格式：命名空间，如 minecraft")
+        .defineListAllowEmpty("namespaceWhitelist", List.of(), () -> "", Config::validateNamespace);
 
     private static final ModConfigSpec.BooleanValue LOG_CANCELLED_STRUCTURES = BUILDER
-        .comment("是否在结构被取消生成时输出日志 / Whether to log structures cancelled during generation")
+        .comment("是否在结构被取消生成时输出日志（显示结构ID和位置）")
         .define("logCancelledStructures", true);
 
     static final ModConfigSpec SPEC = BUILDER.build();
@@ -39,44 +43,50 @@ public class Config {
     public static List<String> namespaceWhitelist;
     public static boolean logCancelledStructures;
 
-    public static boolean isWhitelisted(ResourceLocation structureId) {
-        String namespace = structureId.getNamespace();
-        if (namespaceWhitelist.contains(namespace)) {
+    public static boolean isWhitelisted(Identifier structureId) {
+        if (namespaceWhitelist.contains(structureId.getNamespace())) {
             return true;
         }
 
-        String fullId = structureId.toString();
-        if (structureWhitelist.contains(fullId)) {
-            return true;
-        }
-
-        return false;
+        return structureWhitelist.contains(structureId.toString());
     }
 
     private static boolean validateStructureId(final Object obj) {
         if (!(obj instanceof String id)) {
             return false;
         }
-        ResourceLocation rl = ResourceLocation.tryParse(id);
-        return rl != null && id.contains(":");
+
+        Identifier identifier = Identifier.tryParse(id);
+        return identifier != null && id.contains(":");
     }
 
     private static boolean validateNamespace(final Object obj) {
-        if (!(obj instanceof String ns)) {
+        if (!(obj instanceof String namespace)) {
             return false;
         }
-        return !ns.isEmpty() && !ns.contains(":") && ns.matches("[a-z0-9_.-]+");
+
+        return !namespace.isEmpty()
+            && !namespace.contains(":")
+            && namespace.matches("[a-z0-9_.-]+");
     }
 
-    static void onLoad(final ModConfigEvent event) {
-        if (event.getConfig().getSpec() != SPEC) {
-            return;
-        }
+    @SubscribeEvent
+    static void onLoad(final ModConfigEvent.Loading event) {
+        load(event.getConfig());
+    }
 
-        preventStructureOverlap = PREVENT_STRUCTURE_OVERLAP.get();
-        maxCancelledRecords = MAX_CANCELLED_RECORDS.get();
+    @SubscribeEvent
+    static void onReload(final ModConfigEvent.Reloading event) {
+        load(event.getConfig());
+    }
+
+    private static void load(final ModConfig config) {
+        if (config.getSpec() != SPEC) return;
+
+        preventStructureOverlap = PREVENT_STRUCTURE_OVERLAP.getAsBoolean();
+        maxCancelledRecords = MAX_CANCELLED_RECORDS.getAsInt();
         structureWhitelist = List.copyOf(STRUCTURE_WHITELIST.get());
         namespaceWhitelist = List.copyOf(NAMESPACE_WHITELIST.get());
-        logCancelledStructures = LOG_CANCELLED_STRUCTURES.get();
+        logCancelledStructures = LOG_CANCELLED_STRUCTURES.getAsBoolean();
     }
 }

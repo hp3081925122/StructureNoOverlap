@@ -1,7 +1,7 @@
 package org.hp.structurenooverlap.mixin;
 
 import com.mojang.logging.LogUtils;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkGenerator;
@@ -48,7 +48,7 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
     @Override
     public boolean tryClaimStructure(
         StructureStart start,
-        ResourceLocation structureId,
+        Identifier structureId,
         ServerLevel level
     ) {
         if (!org.hp.structurenooverlap.Config.preventStructureOverlap) {
@@ -63,7 +63,7 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
         ChunkPos chunkPos = start.getChunkPos();
 
         // 使用结构 ID 和起始区块组成稳定键，保证结构重新加载后仍能识别之前的取消状态。
-        String cancellationKey = structureId + "|" + chunkPos.toLong();
+        String cancellationKey = structureId + "|" + chunkPos.pack();
 
         boolean locatedTarget = LocatedStructuresData.get(level).isLocatedTarget(structureId, start, level);
 

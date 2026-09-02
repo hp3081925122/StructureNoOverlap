@@ -3,7 +3,7 @@ package org.hp.structurenooverlap.mixin;
 import com.mojang.logging.LogUtils;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.chunk.ChunkGenerator;
@@ -54,8 +54,8 @@ public class StructureStartMixin {
             StructureStart self = (StructureStart) (Object) this;
 
             // 从当前结构注册表直接取得 ID，避免依赖直接 Holder 是否带有注册键。
-            Registry<Structure> registry = serverLevel.registryAccess().registryOrThrow(Registries.STRUCTURE);
-            ResourceLocation structureId = registry.getKey(structure);
+            Registry<Structure> registry = serverLevel.registryAccess().lookupOrThrow(Registries.STRUCTURE);
+            Identifier structureId = registry.getKey(structure);
             if (structureId == null) {
                 LOGGER.debug("Skipping structure overlap check because the structure has no registry id at {}", chunkPos);
                 return;
