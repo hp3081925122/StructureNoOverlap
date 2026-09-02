@@ -2,7 +2,7 @@
   "required": true,
   "minVersion": "0.8",
   "package": "org.hp.structurenooverlap.mixin",
-  "compatibilityLevel": "JAVA_8",
+  "compatibilityLevel": "JAVA_25",
   "refmap": "structurenooverlap.refmap.json",
   "mixins": [
     "ChunkGeneratorMixin",
