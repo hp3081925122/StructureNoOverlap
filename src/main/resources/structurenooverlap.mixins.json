@@ -6,7 +6,8 @@
   "mixins": [
     "ChunkGeneratorMixin",
     "StructureStartMixin",
-    "LocateCommandMixin"
+    "LocateCommandMixin",
+    "StructureAccessorAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

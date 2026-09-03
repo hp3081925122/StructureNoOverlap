@@ -28,6 +28,12 @@ public class StructureStartMixin {
     @Unique
     private static final Logger LOGGER = LoggerFactory.getLogger("structurenooverlap");
 
+    @Unique
+    private boolean structurenooverlap$checked;
+
+    @Unique
+    private boolean structurenooverlap$cancelled;
+
     @Shadow
     @Final
     private Structure structure;
@@ -42,6 +48,14 @@ public class StructureStartMixin {
         ChunkPos chunkPos,
         CallbackInfo callbackInfo
     ) {
+        if (structurenooverlap$checked) {
+            return;
+        }
+        if (structurenooverlap$cancelled) {
+            callbackInfo.cancel();
+            return;
+        }
+
         if (!(chunkGenerator instanceof StructureOverlapChecker checker)) {
             return;
         }
@@ -64,7 +78,10 @@ public class StructureStartMixin {
         );
 
         if (!checker.tryClaimStructure(self, structureId, serverWorld)) {
+            structurenooverlap$cancelled = true;
             callbackInfo.cancel();
+        } else {
+            structurenooverlap$checked = true;
         }
     }
 }
