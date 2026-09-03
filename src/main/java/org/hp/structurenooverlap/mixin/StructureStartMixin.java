@@ -27,6 +27,12 @@ public class StructureStartMixin {
     @Unique
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    @Unique
+    private boolean structurenooverlap$checked;
+
+    @Unique
+    private boolean structurenooverlap$cancelled;
+
     @Shadow @Final private Structure structure;
 
     @Inject(method = "place", at = @At("HEAD"), cancellable = true)
@@ -39,6 +45,14 @@ public class StructureStartMixin {
         ChunkPos chunkPos,
         CallbackInfo ci
     ) {
+        if (structurenooverlap$checked) {
+            return;
+        }
+        if (structurenooverlap$cancelled) {
+            ci.cancel();
+            return;
+        }
+
         ServerWorld serverWorld = world.toServerWorld();
 
         if (chunkGenerator instanceof org.hp.structurenooverlap.api.StructureOverlapChecker checker) {
@@ -55,7 +69,10 @@ public class StructureStartMixin {
             LOGGER.debug("Structure overlap check reached for {} at {} via {}", structureId, chunkPos, world.getClass().getSimpleName());
 
             if (!checker.tryClaimStructure(self, structureId, serverWorld)) {
+                structurenooverlap$cancelled = true;
                 ci.cancel();
+            } else {
+                structurenooverlap$checked = true;
             }
         }
     }

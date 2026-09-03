@@ -27,6 +27,8 @@ dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
     mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    // 使用 Fabric Resource Loader 将模组内 data 数据包加入服务端动态注册表。
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
 }
 
 loom {
@@ -43,7 +45,8 @@ processResources {
         mod_name: mod_name,
         mod_license: mod_license,
         mod_version: project.version,
-        mod_description: mod_description
+        mod_description: mod_description,
+        fabric_api_version: fabric_api_version
     ])
     filteringCharset = 'UTF-8'
     filesMatching('fabric.mod.json') {
@@ -54,7 +57,8 @@ processResources {
             mod_name: mod_name,
             mod_license: mod_license,
             mod_version: project.version,
-            mod_description: mod_description
+            mod_description: mod_description,
+            fabric_api_version: fabric_api_version
         ])
     }
 }
