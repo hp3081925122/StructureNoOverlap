@@ -1,10 +1,16 @@
 package org.hp.structurenooverlap.mixin;
 
 import com.mojang.logging.LogUtils;
+import net.minecraft.core.SectionPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.ServerLevelAccessor;
+import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.chunk.StructureAccess;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import org.hp.structurenooverlap.api.StructureOverlapChecker;
@@ -36,6 +42,43 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
     @Unique
     private volatile Set<String> structurenooverlap$cancelledStructureStarts;
 
+    @Unique
+    private volatile Set<String> structurenooverlap$acceptedStructureStarts;
+
+    // 在结构起点写入区块前完成一次检测，避免等到结构逐区块放置时重复扫描完整包围盒。
+    @org.spongepowered.asm.mixin.injection.Redirect(
+        method = "tryGenerateStructure",
+        at = @org.spongepowered.asm.mixin.injection.At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/world/level/StructureManager;setStartForStructure(Lnet/minecraft/core/SectionPos;Lnet/minecraft/world/level/levelgen/structure/Structure;Lnet/minecraft/world/level/levelgen/structure/StructureStart;Lnet/minecraft/world/level/chunk/StructureAccess;)V"
+        )
+    )
+    private void structurenooverlap$checkBeforeStart(
+        StructureManager structureManager,
+        SectionPos sectionPos,
+        Structure structure,
+        StructureStart start,
+        StructureAccess structureAccess
+    ) {
+        LevelAccessor levelAccessor = ((StructureManagerAccessor) (Object) structureManager).structurenooverlap$getLevel();
+        if (!(levelAccessor instanceof ServerLevelAccessor serverLevelAccessor)) {
+            structureManager.setStartForStructure(sectionPos, structure, start, structureAccess);
+            return;
+        }
+
+        ServerLevel serverLevel = serverLevelAccessor.getLevel();
+        Identifier structureId = serverLevel.registryAccess().lookupOrThrow(Registries.STRUCTURE).getKey(structure);
+        if (structureId == null) {
+            structureManager.setStartForStructure(sectionPos, structure, start, structureAccess);
+            return;
+        }
+        if (!tryClaimStructure(start, structureId, serverLevel)) {
+            return;
+        }
+
+        structureManager.setStartForStructure(sectionPos, structure, start, structureAccess);
+    }
+
     @Override
     public Map<Long, StructureSectionClaim> getStructureSectionClaims() {
         // 首次访问时一次性创建世界生成线程共享的并发集合，避免构造器未合并导致空指针。
@@ -45,6 +88,7 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
                     structurenooverlap$sectionClaims = new ConcurrentHashMap<>();
                     structurenooverlap$overlapChecks = new ConcurrentHashMap<>();
                     structurenooverlap$cancelledStructureStarts = ConcurrentHashMap.newKeySet();
+                    structurenooverlap$acceptedStructureStarts = ConcurrentHashMap.newKeySet();
                 }
             }
         }
@@ -76,11 +120,22 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
         // 先取得稳定的并发集合引用，再处理并行结构生成与取消记录。
         Map<Long, StructureSectionClaim> sectionClaims = getStructureSectionClaims();
         Set<String> cancelledStructureStarts = structurenooverlap$cancelledStructureStarts;
+        Set<String> acceptedStructureStarts = structurenooverlap$acceptedStructureStarts;
 
         ChunkPos chunkPos = start.getChunkPos();
 
         // 使用结构 ID 和起始区块组成稳定键，保证结构重新加载后仍能识别之前的取消状态。
         String cancellationKey = structureId + "|" + chunkPos.pack();
+
+        // 已经完成判定的结构不再访问定位数据或重新计算包围盒，避免同一结构跨区块放置时重复开销。
+        if (acceptedStructureStarts.contains(cancellationKey)) {
+            return true;
+        }
+
+        // 已经取消的结构不再重复执行冲突检测，并保持原有的取消结果。
+        if (cancelledStructureStarts.contains(cancellationKey)) {
+            return false;
+        }
 
         boolean locatedTarget = LocatedStructuresData.get(level).isLocatedTarget(structureId, start, level);
 
@@ -93,16 +148,17 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
 
             long locatedCenterPos = start.getBoundingBox().getCenter().asLong();
             StructureSectionClaim locatedClaim = new StructureSectionClaim(System.nanoTime(), structureId.toString(), locatedCenterPos);
-            for (long section : locatedSections) {
-                sectionClaims.putIfAbsent(section, locatedClaim);
+            synchronized (sectionClaims) {
+                if (acceptedStructureStarts.contains(cancellationKey)) {
+                    return true;
+                }
+                for (long section : locatedSections) {
+                    sectionClaims.putIfAbsent(section, locatedClaim);
+                }
+                acceptedStructureStarts.add(cancellationKey);
             }
             LOGGER.debug("Located structure {} at {} is exempt from overlap cancellation", structureId, chunkPos);
             return true;
-        }
-
-        // 已经取消的结构后续仍然返回 false，但不再重复执行检测和输出取消日志。
-        if (cancelledStructureStarts.contains(cancellationKey)) {
-            return false;
         }
 
         long[] sections = structurenooverlap$calculateSections(start);
@@ -110,10 +166,18 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
             return true;
         }
 
-        long centerPos = start.getBoundingBox().getCenter().asLong();
-        long token = System.nanoTime();
+        synchronized (sectionClaims) {
+            if (acceptedStructureStarts.contains(cancellationKey)) {
+                return true;
+            }
+            if (cancelledStructureStarts.contains(cancellationKey)) {
+                return false;
+            }
 
-        StructureSectionClaim claim = new StructureSectionClaim(token, structureId.toString(), centerPos);
+            long centerPos = start.getBoundingBox().getCenter().asLong();
+            long token = System.nanoTime();
+
+            StructureSectionClaim claim = new StructureSectionClaim(token, structureId.toString(), centerPos);
 
         for (int i = 0; i < sections.length; i++) {
             StructureSectionClaim existing = sectionClaims.putIfAbsent(sections[i], claim);
@@ -142,7 +206,9 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
             }
         }
 
-        return true;
+            acceptedStructureStarts.add(cancellationKey);
+            return true;
+        }
     }
 
     @Unique

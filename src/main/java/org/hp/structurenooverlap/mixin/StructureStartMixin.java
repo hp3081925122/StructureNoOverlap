@@ -24,6 +24,12 @@ public class StructureStartMixin {
     @Unique
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    @Unique
+    private boolean structurenooverlap$checked;
+
+    @Unique
+    private boolean structurenooverlap$cancelled;
+
     @Shadow @Final private Structure structure;
 
     @Inject(
@@ -40,6 +46,14 @@ public class StructureStartMixin {
         net.minecraft.world.level.ChunkPos chunkPos,
         CallbackInfo ci
     ) {
+        if (structurenooverlap$checked) {
+            return;
+        }
+        if (structurenooverlap$cancelled) {
+            ci.cancel();
+            return;
+        }
+
         // 结构生成阶段使用 WorldGenRegion，这里需要取回它对应的服务端世界。
         ServerLevel serverLevel;
         if (level instanceof ServerLevel directServerLevel) {
@@ -64,7 +78,10 @@ public class StructureStartMixin {
             LOGGER.debug("Structure overlap check reached for {} at {} via {}", structureId, chunkPos, level.getClass().getSimpleName());
 
             if (!checker.tryClaimStructure(self, structureId, serverLevel)) {
+                structurenooverlap$cancelled = true;
                 ci.cancel();
+            } else {
+                structurenooverlap$checked = true;
             }
         }
     }
