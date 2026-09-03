@@ -25,23 +25,36 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
     @Unique
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    // Mixin 不会执行目标类之外的实例字段初始化，这些集合需要在首次使用时延迟创建。
     @Unique
-    private final Map<Long, StructureSectionClaim> structurenooverlap$sectionClaims = new ConcurrentHashMap<>();
+    private volatile Map<Long, StructureSectionClaim> structurenooverlap$sectionClaims;
 
     @Unique
-    private final Map<Long, Boolean> structurenooverlap$overlapChecks = new ConcurrentHashMap<>();
+    private volatile Map<Long, Boolean> structurenooverlap$overlapChecks;
 
     // 记录已经因重叠取消的结构起始位置，避免同一个结构跨区块或重新加载后重复触发取消日志。
     @Unique
-    private final Set<String> structurenooverlap$cancelledStructureStarts = ConcurrentHashMap.newKeySet();
+    private volatile Set<String> structurenooverlap$cancelledStructureStarts;
 
     @Override
     public Map<Long, StructureSectionClaim> getStructureSectionClaims() {
+        // 首次访问时一次性创建世界生成线程共享的并发集合，避免构造器未合并导致空指针。
+        if (structurenooverlap$sectionClaims == null) {
+            synchronized (this) {
+                if (structurenooverlap$sectionClaims == null) {
+                    structurenooverlap$sectionClaims = new ConcurrentHashMap<>();
+                    structurenooverlap$overlapChecks = new ConcurrentHashMap<>();
+                    structurenooverlap$cancelledStructureStarts = ConcurrentHashMap.newKeySet();
+                }
+            }
+        }
         return structurenooverlap$sectionClaims;
     }
 
     @Override
     public Map<Long, Boolean> getOverlapChecks() {
+        // 通过主集合访问器确保其余并发集合已经完成延迟初始化。
+        getStructureSectionClaims();
         return structurenooverlap$overlapChecks;
     }
 
@@ -60,6 +73,10 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
             return true;
         }
 
+        // 先取得稳定的并发集合引用，再处理并行结构生成与取消记录。
+        Map<Long, StructureSectionClaim> sectionClaims = getStructureSectionClaims();
+        Set<String> cancelledStructureStarts = structurenooverlap$cancelledStructureStarts;
+
         ChunkPos chunkPos = start.getChunkPos();
 
         // 使用结构 ID 和起始区块组成稳定键，保证结构重新加载后仍能识别之前的取消状态。
@@ -77,14 +94,14 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
             long locatedCenterPos = start.getBoundingBox().getCenter().asLong();
             StructureSectionClaim locatedClaim = new StructureSectionClaim(System.nanoTime(), structureId.toString(), locatedCenterPos);
             for (long section : locatedSections) {
-                structurenooverlap$sectionClaims.putIfAbsent(section, locatedClaim);
+                sectionClaims.putIfAbsent(section, locatedClaim);
             }
             LOGGER.debug("Located structure {} at {} is exempt from overlap cancellation", structureId, chunkPos);
             return true;
         }
 
         // 已经取消的结构后续仍然返回 false，但不再重复执行检测和输出取消日志。
-        if (structurenooverlap$cancelledStructureStarts.contains(cancellationKey)) {
+        if (cancelledStructureStarts.contains(cancellationKey)) {
             return false;
         }
 
@@ -99,16 +116,16 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
         StructureSectionClaim claim = new StructureSectionClaim(token, structureId.toString(), centerPos);
 
         for (int i = 0; i < sections.length; i++) {
-            StructureSectionClaim existing = structurenooverlap$sectionClaims.putIfAbsent(sections[i], claim);
+            StructureSectionClaim existing = sectionClaims.putIfAbsent(sections[i], claim);
 
             if (existing != null) {
                 if (!existing.structureId().equals(claim.structureId()) || existing.structureCenter() != claim.structureCenter()) {
                     for (int j = 0; j < i; j++) {
-                        structurenooverlap$sectionClaims.remove(sections[j], claim);
+                        sectionClaims.remove(sections[j], claim);
                     }
 
                     // 只有首次发现该结构起始位置冲突时才记录和输出日志，后续调用直接保持取消状态。
-                    if (structurenooverlap$cancelledStructureStarts.add(cancellationKey)) {
+                    if (cancelledStructureStarts.add(cancellationKey)) {
                         LOGGER.debug("Structure {} at {} cancelled due to overlap with {}",
                             structureId, chunkPos, existing.structureId());
 
