@@ -49,9 +49,30 @@ repositories {
         name = 'NeoForge'
         url = 'https://maven.neoforged.net/releases'
     }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'CurseMaven'
+                url = 'https://cursemaven.com'
+            }
+        }
+        filter {
+            includeGroup 'curse.maven'
+        }
+    }
 }
 
 dependencies {
+    def compassVariant = providers.gradleProperty('explorersCompassRuntimeVariant').orElse('original').get()
+    def compassDependencies = [
+        original: 'curse.maven:explorers-compass-491794:7892943',
+        edited : 'curse.maven:explorers-compass-edited-1203888:8234657',
+        enhance: 'curse.maven:explorers-compass-enhance-1649198:8761369'
+    ]
+    if (!compassDependencies.containsKey(compassVariant)) {
+        throw new GradleException("Unknown explorersCompassRuntimeVariant: ${compassVariant}")
+    }
+    implementation compassDependencies[compassVariant]
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 }
 

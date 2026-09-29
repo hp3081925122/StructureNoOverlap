@@ -20,12 +20,12 @@ public class Config {
     private static final ModConfigSpec.ConfigValue<List<? extends String>> STRUCTURE_WHITELIST = BUILDER
         .comment("结构ID白名单，白名单中的结构永远不会被取消生成\nStructure ID whitelist; listed structures are never cancelled.",
                  "格式：完整结构ID，如 minecraft:village_plains\nFormat: a full structure ID such as minecraft:village_plains.")
-        .defineListAllowEmpty("structureWhitelist", List.of(), Config::validateStructureId);
+        .defineListAllowEmpty("structureWhitelist", List.of("minecraft:stronghold"), Config::validateStructureId);
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> NAMESPACE_WHITELIST = BUILDER
         .comment("模组命名空间白名单，该命名空间下的所有结构永远不会被取消生成\nNamespace whitelist; all structures in listed namespaces are never cancelled.",
                  "格式：命名空间，如 minecraft\nFormat: a namespace such as minecraft.")
-        .defineListAllowEmpty("namespaceWhitelist", List.of(), Config::validateNamespace);
+        .defineListAllowEmpty("namespaceWhitelist", List.of("cataclysm", "bosses_of_mass_destruction"), Config::validateNamespace);
 
     private static final ModConfigSpec.BooleanValue LOG_CANCELLED_STRUCTURES = BUILDER
         .comment("是否在结构被取消生成时输出日志（显示结构ID和位置）\nWhether to log the structure ID and position when generation is cancelled.")

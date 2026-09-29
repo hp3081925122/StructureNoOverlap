@@ -14,6 +14,8 @@ import net.minecraft.world.level.chunk.StructureAccess;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import org.hp.structurenooverlap.api.StructureOverlapChecker;
+import org.hp.structurenooverlap.compat.ExplorerCompassSearchContext;
+import org.hp.structurenooverlap.data.AcceptedStructuresData;
 import org.hp.structurenooverlap.data.CancelledStructuresData;
 import org.hp.structurenooverlap.data.LocatedStructuresData;
 import org.hp.structurenooverlap.world.StructureSectionClaim;
@@ -24,6 +26,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -49,6 +52,12 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
 
     @Unique
     private final ReentrantLock structurenooverlap$claimsLock = new ReentrantLock();
+
+    @Unique
+    private volatile ServerLevel structurenooverlap$claimsLevel;
+
+    @Unique
+    private volatile boolean structurenooverlap$claimsLoaded;
 
     // 在结构起点写入区块前完成一次检测，避免等到结构逐区块放置时重复扫描完整包围盒。
     @Redirect(
@@ -105,6 +114,8 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
             return true;
         }
 
+        structurenooverlap$ensureClaimsLoaded(level);
+
         if (org.hp.structurenooverlap.Config.isWhitelisted(structureId)) {
             LOGGER.debug("Structure {} is whitelisted, allowing generation", structureId);
             return true;
@@ -125,7 +136,9 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
             return false;
         }
 
-        boolean locatedTarget = LocatedStructuresData.get(level).isLocatedTarget(structureId, start, level);
+        boolean compassTarget = ExplorerCompassSearchContext.allows(level, chunkPos, start.getStructure());
+        boolean locatedTarget = compassTarget
+            || LocatedStructuresData.get(level).isLocatedTarget(structureId, start, level);
 
         // 被定位的结构允许越过已有占用，但仍登记空闲区域，保护后续生成的结构。
         if (locatedTarget) {
@@ -145,10 +158,18 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
                     structurenooverlap$sectionClaims.putIfAbsent(section, locatedClaim);
                 }
                 structurenooverlap$acceptedStructureStarts.add(cancellationKey);
+                AcceptedStructuresData.get(level).recordAccepted(
+                    structureId,
+                    chunkPos,
+                    start.getBoundingBox()
+                );
             } finally {
                 structurenooverlap$claimsLock.unlock();
             }
-            LOGGER.debug("Located structure {} at {} is exempt from overlap cancellation", structureId, chunkPos);
+            LOGGER.debug("Structure {} at {} is exempt from overlap cancellation by {}",
+                structureId,
+                chunkPos,
+                compassTarget ? "Explorer's Compass" : "locate");
             return true;
         }
 
@@ -198,7 +219,57 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
             }
 
             structurenooverlap$acceptedStructureStarts.add(cancellationKey);
+            AcceptedStructuresData.get(level).recordAccepted(
+                structureId,
+                chunkPos,
+                start.getBoundingBox()
+            );
             return true;
+        } finally {
+            structurenooverlap$claimsLock.unlock();
+        }
+    }
+
+    @Unique
+    private void structurenooverlap$ensureClaimsLoaded(ServerLevel level) {
+        if (structurenooverlap$claimsLoaded && structurenooverlap$claimsLevel == level) {
+            return;
+        }
+
+        structurenooverlap$claimsLock.lock();
+        try {
+            if (structurenooverlap$claimsLoaded && structurenooverlap$claimsLevel == level) {
+                return;
+            }
+
+            structurenooverlap$sectionClaims.clear();
+            structurenooverlap$acceptedStructureStarts.clear();
+            structurenooverlap$cancelledStructureStarts.clear();
+
+            List<AcceptedStructuresData.AcceptedStructure> acceptedStructures =
+                AcceptedStructuresData.get(level).getAcceptedStructures();
+            for (AcceptedStructuresData.AcceptedStructure accepted : acceptedStructures) {
+                StructureSectionClaim claim = new StructureSectionClaim(
+                    System.nanoTime(),
+                    accepted.structureId().toString(),
+                    accepted.center()
+                );
+                long[] sections = structurenooverlap$calculateSections(
+                    accepted.minX(), accepted.minY(), accepted.minZ(),
+                    accepted.maxX(), accepted.maxY(), accepted.maxZ()
+                );
+                for (long section : sections) {
+                    structurenooverlap$sectionClaims.putIfAbsent(section, claim);
+                }
+                structurenooverlap$acceptedStructureStarts.add(
+                    accepted.structureId() + "|" + accepted.chunkPos().toLong()
+                );
+            }
+            structurenooverlap$claimsLevel = level;
+            structurenooverlap$claimsLoaded = true;
+            LOGGER.debug("Restored {} accepted structure records for {}",
+                acceptedStructures.size(),
+                level.dimension().location());
         } finally {
             structurenooverlap$claimsLock.unlock();
         }
@@ -217,6 +288,19 @@ public class ChunkGeneratorMixin implements StructureOverlapChecker {
         int maxX = bb.maxX() >> 4;
         int maxY = bb.maxY() >> 4;
         int maxZ = bb.maxZ() >> 4;
+
+        return structurenooverlap$calculateSections(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    @Unique
+    private long[] structurenooverlap$calculateSections(
+        int minX,
+        int minY,
+        int minZ,
+        int maxX,
+        int maxY,
+        int maxZ
+    ) {
 
         int count = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
         long[] sections = new long[count];
