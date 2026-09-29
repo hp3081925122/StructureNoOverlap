@@ -134,6 +134,18 @@ repositories {
     // Put repositories for dependencies here
     // ForgeGradle automatically adds the Forge maven and Maven Central for you
 
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'CurseMaven'
+                url = 'https://cursemaven.com'
+            }
+        }
+        filter {
+            includeGroup 'curse.maven'
+        }
+    }
+
     // If you have mod jar dependencies in ./libs, you can declare them as a repository like so.
     // See https://docs.gradle.org/current/userguide/declaring_repositories.html#sub:flat_dir_resolver
     // flatDir {
@@ -148,6 +160,17 @@ dependencies {
     // If the group id is "net.minecraft" and the artifact id is one of ["client", "server", "joined"],
     // then special handling is done to allow a setup of a vanilla dependency without the use of an external repository.
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+
+    def compassVariant = providers.gradleProperty('explorersCompassRuntimeVariant').orElse('original').get()
+    def compassDependencies = [
+        original: 'curse.maven:explorers-compass-491794:7892927',
+        edited : 'curse.maven:explorers-compass-edited-1203888:7175635',
+        enhance: 'curse.maven:explorers-compass-enhance-1649198:8761373'
+    ]
+    if (!compassDependencies.containsKey(compassVariant)) {
+        throw new GradleException("Unknown explorersCompassRuntimeVariant: ${compassVariant}")
+    }
+    runtimeOnly fg.deobf(compassDependencies[compassVariant])
 
     // Example mod dependency with JEI - using fg.deobf() ensures the dependency is remapped to your development mappings
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime

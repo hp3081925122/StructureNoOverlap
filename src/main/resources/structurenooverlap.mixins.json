@@ -2,13 +2,15 @@
   "required": true,
   "minVersion": "0.8",
   "package": "org.hp.structurenooverlap.mixin",
+  "plugin": "org.hp.structurenooverlap.mixin.StructureNoOverlapMixinPlugin",
   "compatibilityLevel": "JAVA_8",
   "refmap": "structurenooverlap.refmap.json",
   "mixins": [
     "ChunkGeneratorMixin",
     "StructureStartMixin",
     "LocateCommandMixin",
-    "StructureManagerAccessor"
+    "StructureManagerAccessor",
+    "ExplorerCompassSearchWorkerMixin"
   ],
   "client": [
   ],
