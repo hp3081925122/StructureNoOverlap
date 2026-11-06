@@ -20,6 +20,17 @@ java {
 repositories {
     // 从 Fabric 官方 Maven 解析 Loom、Yarn 与 Fabric Loader。
     maven { url = 'https://maven.fabricmc.net/' }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'CurseMaven'
+                url = 'https://cursemaven.com'
+            }
+        }
+        filter {
+            includeGroup 'curse.maven'
+        }
+    }
 }
 
 dependencies {
@@ -29,6 +40,7 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${loader_version}"
     // 使用 Fabric Resource Loader 将模组内 data 数据包加入服务端动态注册表。
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    modImplementation "curse.maven:explorers-compass-491794:4016464"
 }
 
 loom {
