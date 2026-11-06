@@ -29,8 +29,8 @@ public final class Config {
 
     public static boolean preventStructureOverlap = true;
     public static int maxCancelledRecords = 1000;
-    public static List<String> structureWhitelist = List.of();
-    public static List<String> namespaceWhitelist = List.of();
+    public static List<String> structureWhitelist = List.of("minecraft:stronghold");
+    public static List<String> namespaceWhitelist = List.of("cataclysm", "bosses_of_mass_destruction");
     public static boolean logCancelledStructures = true;
 
     private Config() {
