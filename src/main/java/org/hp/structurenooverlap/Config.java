@@ -33,11 +33,11 @@ public final class Config {
 
         # 结构 ID 白名单，格式为完整 ID，例如 minecraft:village_plains
         # Structure ID whitelist using full IDs such as minecraft:village_plains
-        structureWhitelist = []
+        structureWhitelist = ["minecraft:stronghold"]
 
         # 模组命名空间白名单，格式为命名空间，例如 minecraft
         # Namespace whitelist using namespace values such as minecraft
-        namespaceWhitelist = []
+        namespaceWhitelist = ["cataclysm", "bosses_of_mass_destruction"]
 
         # 是否在结构被取消生成时输出日志（显示结构 ID 和位置）
         # Logs the structure ID and position when generation is cancelled
@@ -171,8 +171,8 @@ public final class Config {
     private static void useDefaults() {
         preventStructureOverlap = true;
         maxCancelledRecords = 1000;
-        structureWhitelist = List.of();
-        namespaceWhitelist = List.of();
+        structureWhitelist = List.of("minecraft:stronghold");
+        namespaceWhitelist = List.of("cataclysm", "bosses_of_mass_destruction");
         logCancelledStructures = true;
     }
 }
